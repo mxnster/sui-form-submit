@@ -57,6 +57,30 @@ async function submitForm(address, name, mail, proxy) {
     }
 }
 
+async function getPlayerCard(address) {
+    let retries = 0;
+    try {
+        while (retries < 10) {
+            let objects = await provider.getObjectsOwnedByAddress(address);
+            let card = objects.find(i => i.type.includes(`0x436dfcc34d299f3ad41a3429da4b66f2e627db84::frenemies::Scorecard`))
+
+            if (card) {
+                let info = await provider.getObject(card.objectId);
+
+                return {
+                    objectId: card.objectId,
+                    participation: info.details.data.fields.participation,
+                    score: info.details.data.fields.score,
+                    ...info.details.data.fields.assignment.fields,
+                    ...info.details.data.fields.name.fields
+                }
+            }
+            retries++;
+            await timeout(5000)
+        }
+    } catch (e) { console.log('Не удалось получить карточку игрока после 10 попыток'); }
+}
+
 async function approveForm(signer, bytes, address) {
     let retries = retriesMap.get(address);
     try {
@@ -93,13 +117,18 @@ async function approveForm(signer, bytes, address) {
         const signer = new RawSigner(keypair, provider);
         retriesMap.set(address, 1)
 
-        const bytes = await submitForm(address, name.trim(), mail.trim(), proxyString)
-        await timeout(5000)
+        let card = await getPlayerCard(address)
+        console.log(`Кол-во поинтов: ${card.score}`);
 
-        if (bytes) {
-            await approveForm(signer, bytes, address)
+        if (card.score > 0) {
+            const bytes = await submitForm(address, name.trim(), mail.trim(), proxyString)
             await timeout(5000)
-            console.log('-'.repeat(60));
-        }
+
+            if (bytes) {
+                await approveForm(signer, bytes, address)
+                await timeout(5000)
+                console.log('-'.repeat(60));
+            }
+        } else console.log(`Не отправляю форму :(`);
     }
 })()
