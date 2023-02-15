@@ -13,6 +13,7 @@ const provider = new JsonRpcProvider('https://rpc-ws-testnet-w2.suiscan.xyz/');
 const timeout = ms => new Promise(res => setTimeout(res, ms))
 const parseFile = fileName => fs.readFileSync(fileName, "utf8").split('\n').map(str => str.trim()).filter(str => str.length > 10);
 const generateRandomAmount = (min, max) => Math.random() * (max - min) + min;
+const retriesMap = new Map();
 function mnemonicToAddress(mnemonic) {
     const keypair = Ed25519Keypair.deriveKeypair(mnemonic);
     return `0x${keypair.getPublicKey().toSuiAddress()}`;
@@ -56,8 +57,8 @@ async function submitForm(address, name, mail, proxy) {
     }
 }
 
-async function approveForm(signer, bytes) {
-    let retries = 0;
+async function approveForm(signer, bytes, address) {
+    let retries = retriesMap.get(address);
     try {
         if (retries < 6) {
             console.log(`Аппруваю форму ${retries > 1 ? `попытка ${retries}` : ''}`);
@@ -73,7 +74,7 @@ async function approveForm(signer, bytes) {
         }
     } catch (err) {
         console.log('Не удалось аппрувнуть форму');
-        retries++;
+        retriesMap.set(address, retries + 1)
         console.log(err.message);
         await timeout(5000)
         await approveForm(signer, bytes)
@@ -90,12 +91,13 @@ async function approveForm(signer, bytes) {
         const address = mnemonicToAddress(mnemonic);
         const keypair = Ed25519Keypair.deriveKeypair(mnemonic);
         const signer = new RawSigner(keypair, provider);
+        retriesMap.set(address, 1)
 
         const bytes = await submitForm(address, name.trim(), mail.trim(), proxyString)
         await timeout(5000)
 
         if (bytes) {
-            await approveForm(signer, bytes)
+            await approveForm(signer, bytes, address)
             await timeout(5000)
             console.log('-'.repeat(60));
         }
